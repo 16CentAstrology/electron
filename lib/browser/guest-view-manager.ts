@@ -1,21 +1,21 @@
-import { webContents } from 'electron/main';
 import { ipcMainInternal } from '@electron/internal/browser/ipc-main-internal';
 import * as ipcMainUtils from '@electron/internal/browser/ipc-main-internal-utils';
 import { parseWebViewWebPreferences } from '@electron/internal/browser/parse-features-string';
-import { syncMethods, asyncMethods, properties } from '@electron/internal/common/web-view-methods';
 import { webViewEvents } from '@electron/internal/browser/web-view-events';
 import { IPC_MESSAGES } from '@electron/internal/common/ipc-messages';
+import { syncMethods, asyncMethods, properties, navigationHistorySyncMethods } from '@electron/internal/common/web-view-methods';
+
+import { webContents } from 'electron/main';
 
 interface GuestInstance {
   elementInstanceId: number;
-  visibilityState?: VisibilityState;
+  visibilityState?: DocumentVisibilityState;
   embedder: Electron.WebContents;
   guest: Electron.WebContents;
 }
 
 const webViewManager = process._linkedBinding('electron_browser_web_view_manager');
-const eventBinding = process._linkedBinding('electron_browser_event');
-const netBinding = process._linkedBinding('electron_browser_net');
+const netBinding = process._linkedBinding('electron_common_net');
 
 const supportedWebViewEvents = Object.keys(webViewEvents);
 
@@ -82,7 +82,13 @@ function makeLoadURLOptions (params: Record<string, any>) {
 // Create a new guest instance.
 const createGuest = function (embedder: Electron.WebContents, embedderFrameId: number, elementInstanceId: number, params: Record<string, any>) {
   const webPreferences = makeWebPreferences(embedder, params);
-  const event = eventBinding.createWithSender(embedder);
+  const event = {
+    sender: embedder,
+    preventDefault () {
+      this.defaultPrevented = true;
+    },
+    defaultPrevented: false
+  };
 
   const { instanceId } = params;
 
@@ -91,7 +97,6 @@ const createGuest = function (embedder: Electron.WebContents, embedderFrameId: n
     return -1;
   }
 
-  // eslint-disable-next-line no-undef
   const guest = (webContents as typeof ElectronInternal.WebContents).create({
     ...webPreferences,
     type: 'webview',
@@ -136,9 +141,9 @@ const createGuest = function (embedder: Electron.WebContents, embedderFrameId: n
 
   const makeProps = (eventKey: string, args: any[]) => {
     const props: Record<string, any> = {};
-    webViewEvents[eventKey].forEach((prop, index) => {
+    for (const [index, prop] of webViewEvents[eventKey].entries()) {
       props[prop] = args[index];
-    });
+    }
     return props;
   };
 
@@ -155,6 +160,16 @@ const createGuest = function (embedder: Electron.WebContents, embedderFrameId: n
       frameId: [event.processId, event.frameId],
       channel,
       args
+    });
+  });
+
+  // Dispatch guest's frame navigation event to embedder.
+  guest.on('will-frame-navigate', function (event: Electron.WebContentsWillFrameNavigateEventParams) {
+    sendToEmbedder(IPC_MESSAGES.GUEST_VIEW_INTERNAL_DISPATCH_EVENT, 'will-frame-navigate', {
+      url: event.url,
+      isMainFrame: event.isMainFrame,
+      frameProcessId: event.processId,
+      frameRoutingId: event.routingId
     });
   });
 
@@ -215,7 +230,7 @@ const watchEmbedder = function (embedder: Electron.WebContents) {
   watchedEmbedders.add(embedder);
 
   // Forward embedder window visibility change events to guest
-  const onVisibilityChange = function (visibilityState: VisibilityState) {
+  const onVisibilityChange = function (visibilityState: DocumentVisibilityState) {
     for (const guestInstance of guestInstances.values()) {
       guestInstance.visibilityState = visibilityState;
       if (guestInstance.embedder === embedder) {
@@ -223,7 +238,7 @@ const watchEmbedder = function (embedder: Electron.WebContents) {
       }
     }
   };
-  embedder.on('-window-visibility-change' as any, onVisibilityChange);
+  embedder.on('-window-visibility-change', onVisibilityChange);
 
   embedder.once('will-destroy' as any, () => {
     // Usually the guestInstances is cleared when guest is destroyed, but it
@@ -235,7 +250,7 @@ const watchEmbedder = function (embedder: Electron.WebContents) {
       }
     }
     // Clear the listeners.
-    embedder.removeListener('-window-visibility-change' as any, onVisibilityChange);
+    embedder.removeListener('-window-visibility-change', onVisibilityChange);
     watchedEmbedders.delete(embedder);
   });
 };
@@ -296,6 +311,14 @@ handleMessageSync(IPC_MESSAGES.GUEST_VIEW_MANAGER_CALL, function (event, guestIn
   const guest = getGuestForWebContents(guestInstanceId, event.sender);
   if (!syncMethods.has(method)) {
     throw new Error(`Invalid method: ${method}`);
+  }
+  // Redirect history methods to updated navigationHistory property on webContents. See issue #42879.
+  if (navigationHistorySyncMethods.has(method)) {
+    let navigationMethod = method;
+    if (method === 'clearHistory') {
+      navigationMethod = 'clear';
+    }
+    return (guest as any).navigationHistory[navigationMethod](...args);
   }
 
   return (guest as any)[method](...args);

@@ -5,10 +5,12 @@
 #include "shell/browser/ui/cocoa/electron_inspectable_web_contents_view.h"
 
 #include "content/public/browser/render_widget_host_view.h"
+#include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/ui/cocoa/event_dispatching_window.h"
 #include "shell/browser/ui/inspectable_web_contents.h"
 #include "shell/browser/ui/inspectable_web_contents_view_delegate.h"
 #include "shell/browser/ui/inspectable_web_contents_view_mac.h"
+#include "ui/base/cocoa/base_view.h"
 #include "ui/gfx/mac/scoped_cocoa_disable_screen_updates.h"
 
 @implementation ElectronInspectableWebContentsView
@@ -25,8 +27,8 @@
   devtools_is_first_responder_ = NO;
   attached_to_window_ = NO;
 
-  if (inspectableWebContentsView_->inspectable_web_contents()->IsGuest()) {
-    fake_view_.reset([[NSView alloc] init]);
+  if (inspectableWebContentsView_->inspectable_web_contents()->is_guest()) {
+    fake_view_ = [[NSView alloc] init];
     [fake_view_ setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [self addSubview:fake_view_];
   } else {
@@ -45,7 +47,6 @@
 
 - (void)dealloc {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [super dealloc];
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldBoundsSize {
@@ -78,6 +79,18 @@
 - (void)notifyDevToolsFocused {
   if (inspectableWebContentsView_->GetDelegate())
     inspectableWebContentsView_->GetDelegate()->DevToolsFocused();
+}
+
+- (void)setCornerRadii:(CGFloat)cornerRadius {
+  auto* inspectable_web_contents =
+      inspectableWebContentsView_->inspectable_web_contents();
+  DCHECK(inspectable_web_contents);
+  auto* webContents = inspectable_web_contents->GetWebContents();
+  if (!webContents)
+    return;
+  auto* webContentsView = webContents->GetNativeView().GetNativeNSView();
+  webContentsView.wantsLayer = YES;
+  webContentsView.layer.cornerRadius = cornerRadius;
 }
 
 - (void)notifyDevToolsResized {
@@ -124,7 +137,7 @@
     } else {
       [devtools_window_ setDelegate:nil];
       [devtools_window_ close];
-      devtools_window_.reset();
+      devtools_window_ = nil;
     }
   }
 }
@@ -140,6 +153,11 @@
     return [devtools_window_ isKeyWindow];
   }
 }
+
+// TODO: remove NSWindowStyleMaskTexturedBackground.
+// https://github.com/electron/electron/issues/43125
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 - (void)setIsDocked:(BOOL)docked activate:(BOOL)activate {
   // Revert to no-devtools state.
@@ -158,11 +176,11 @@
                      NSWindowStyleMaskResizable |
                      NSWindowStyleMaskTexturedBackground |
                      NSWindowStyleMaskUnifiedTitleAndToolbar;
-    devtools_window_.reset([[EventDispatchingWindow alloc]
+    devtools_window_ = [[EventDispatchingWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 800, 600)
                   styleMask:styleMask
                     backing:NSBackingStoreBuffered
-                      defer:YES]);
+                      defer:YES];
     [devtools_window_ setDelegate:self];
     [devtools_window_ setFrameAutosaveName:@"electron.devtools"];
     [devtools_window_ setTitle:@"Developer Tools"];
@@ -182,6 +200,9 @@
   }
   [self setDevToolsVisible:YES activate:activate];
 }
+
+// -Wdeprecated-declarations
+#pragma clang diagnostic pop
 
 - (void)setContentsResizingStrategy:
     (const DevToolsContentsResizingStrategy&)strategy {
@@ -237,6 +258,10 @@
 
 - (void)setTitle:(NSString*)title {
   [devtools_window_ setTitle:title];
+}
+
+- (NSString*)getTitle {
+  return [devtools_window_ title];
 }
 
 - (void)viewDidBecomeFirstResponder:(NSNotification*)notification {

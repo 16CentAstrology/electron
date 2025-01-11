@@ -7,10 +7,10 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/no_destructor.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "content/public/utility/utility_thread.h"
+#include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/service_factory.h"
+#include "printing/buildflags/buildflags.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/sandbox_type.h"
 #include "services/proxy_resolver/proxy_resolver_factory_impl.h"
@@ -21,7 +21,9 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "chrome/services/util_win/public/mojom/util_read_icon.mojom.h"
+#include "chrome/services/util_win/public/mojom/util_win.mojom.h"
 #include "chrome/services/util_win/util_read_icon.h"
+#include "chrome/services/util_win/util_win_impl.h"
 #endif  // BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(ENABLE_PRINTING)
@@ -56,6 +58,9 @@ auto RunWindowsIconReader(
     mojo::PendingReceiver<chrome::mojom::UtilReadIcon> receiver) {
   return std::make_unique<UtilReadIcon>(std::move(receiver));
 }
+auto RunWindowsUtility(mojo::PendingReceiver<chrome::mojom::UtilWin> receiver) {
+  return std::make_unique<UtilWinImpl>(std::move(receiver));
+}
 #endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
@@ -85,12 +90,11 @@ ElectronContentUtilityClient::ElectronContentUtilityClient() = default;
 ElectronContentUtilityClient::~ElectronContentUtilityClient() = default;
 
 // The guts of this came from the chromium implementation
-// https://cs.chromium.org/chromium/src/chrome/utility/
-// chrome_content_utility_client.cc?sq=package:chromium&dr=CSs&g=0&l=142
+// https://source.chromium.org/chromium/chromium/src/+/main:chrome/utility/chrome_content_utility_client.cc
 void ElectronContentUtilityClient::ExposeInterfacesToBrowser(
     mojo::BinderMap* binders) {
 #if BUILDFLAG(IS_WIN)
-  auto& cmd_line = *base::CommandLine::ForCurrentProcess();
+  const auto& cmd_line = *base::CommandLine::ForCurrentProcess();
   auto sandbox_type = sandbox::policy::SandboxTypeFromCommandLine(cmd_line);
   utility_process_running_elevated_ =
       sandbox_type == sandbox::mojom::Sandbox::kNoSandboxAndElevatedPrivileges;
@@ -102,7 +106,7 @@ void ElectronContentUtilityClient::ExposeInterfacesToBrowser(
 #if BUILDFLAG(ENABLE_PRINTING) && BUILDFLAG(IS_WIN)
     binders->Add<printing::mojom::PdfToEmfConverterFactory>(
         base::BindRepeating(printing::PdfToEmfConverterFactory::Create),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
 #endif
   }
 }
@@ -111,6 +115,7 @@ void ElectronContentUtilityClient::RegisterMainThreadServices(
     mojo::ServiceFactory& services) {
 #if BUILDFLAG(IS_WIN)
   services.Add(RunWindowsIconReader);
+  services.Add(RunWindowsUtility);
 #endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
