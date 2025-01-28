@@ -15,16 +15,16 @@ at some point be an API to "unfreeze" the flags, or we may be able to refactor
 node initialization to not update flags after V8 initialization.
 
 diff --git a/content/renderer/render_process_impl.cc b/content/renderer/render_process_impl.cc
-index bc75e10508b881341df7a90adf2be55274803780..d23a1bce999d7fbbc89001bb03186e5dfbb7f409 100644
+index 280b1492ba87e8610b4e28827a5de9aba2ba7e9d..0bb40d521192bd7771022145ef93991057ccceeb 100644
 --- a/content/renderer/render_process_impl.cc
 +++ b/content/renderer/render_process_impl.cc
-@@ -229,6 +229,9 @@ RenderProcessImpl::RenderProcessImpl()
-   SetV8FlagIfNotFeature(features::kWebAssemblyDynamicTiering,
-                         "--no-wasm-dynamic-tiering");
+@@ -207,6 +207,9 @@ RenderProcessImpl::RenderProcessImpl()
+     v8::V8::SetFlagsFromString(kSABPerContextFlag, sizeof(kSABPerContextFlag));
+   }
  
 +  // Freezing flags after init conflicts with node in the renderer.
 +  v8::V8::SetFlagsFromString("--no-freeze-flags-after-init");
 +
- #if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(ARCH_CPU_X86_64)
    if (base::FeatureList::IsEnabled(features::kWebAssemblyTrapHandler)) {
-     base::CommandLine* const command_line =
+     content::GetContentClient()->renderer()->SetUpWebAssemblyTrapHandler();
+   }
