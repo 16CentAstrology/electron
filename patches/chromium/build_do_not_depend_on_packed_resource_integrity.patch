@@ -11,16 +11,16 @@ if we ever align our .pak file generation with Chrome we can remove this
 patch.
 
 diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
-index 58be09545e68ebdea72cccf5d3de8006af6b9375..1cbd939074eed59fa7227eeced4b8f396de7d3bc 100644
+index 1da9a118fedc612dfed638abba54e69b983d9185..f76f04f25307c9d49edf7462c16e0e04f64109aa 100644
 --- a/chrome/BUILD.gn
 +++ b/chrome/BUILD.gn
-@@ -180,11 +180,16 @@ if (!is_android && !is_mac) {
+@@ -196,11 +196,16 @@ if (!is_android && !is_mac) {
          "common/crash_keys.h",
        ]
  
 +      if (!is_electron_build) {
 +        deps = [
-+          ":packed_resources_integrity",
++          ":packed_resources_integrity_header",
 +        ]
 +      }
 +
@@ -28,63 +28,57 @@ index 58be09545e68ebdea72cccf5d3de8006af6b9375..1cbd939074eed59fa7227eeced4b8f39
          ":chrome_dll",
          ":chrome_exe_version",
          ":copy_first_run",
--        ":packed_resources_integrity",
+-        ":packed_resources_integrity_header",
          ":visual_elements_resources",
          "//base",
          "//build:branding_buildflags",
 diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
-index a90a57bbcd39e14dbd9ac485a7df92ee1d74fd7c..c4d024176f1f17f39d8c3a36b06b3299831c982c 100644
+index 9f293f4ddd146e183e50ad3a99f464c10d2aaab5..9de2b989244cdf2966004b40118ea1b13d3be7b0 100644
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -4611,7 +4611,7 @@ static_library("browser") {
+@@ -4527,7 +4527,7 @@ static_library("browser") {
+           [ "//chrome/browser/ui/webui/signin:profile_impl" ]
+     }
  
-     # On Windows, the hashes are embedded in //chrome:chrome_initial rather
-     # than here in :chrome_dll.
 -    if (!is_win) {
 +    if (!is_win && !is_electron_build) {
-       deps += [ "//chrome:packed_resources_integrity" ]
-       sources += [ "certificate_viewer_stub.cc" ]
-     }
+       # On Windows, the hashes are embedded in //chrome:chrome_initial rather
+       # than here in :chrome_dll.
+       deps += [ "//chrome:packed_resources_integrity_header" ]
 diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
-index 698a62277215423b51a946d3a25523f844dce3ac..8174066a5bf7a470c11d6ac3f804363e3f28b8e4 100644
+index c3394f059fa284ebcfd3597951343b2e375c72f3..65576f0ba3335f8ede68037bf1a490f64ea495d7 100644
 --- a/chrome/test/BUILD.gn
 +++ b/chrome/test/BUILD.gn
-@@ -6222,7 +6222,6 @@ test("unit_tests") {
- 
-     deps += [
-       "//chrome:other_version",
--      "//chrome:packed_resources_integrity",
-       "//chrome//services/util_win:unit_tests",
-       "//chrome/app:chrome_dll_resources",
-       "//chrome/app:crash_reporter_client_win_unit_tests",
-@@ -6247,6 +6246,10 @@ test("unit_tests") {
-       "//ui/resources",
+@@ -7000,9 +7000,12 @@ test("unit_tests") {
+       "//chrome/notification_helper",
      ]
  
 +    if (!is_electron_build) {
-+      deps += [ "//chrome:packed_resources_integrity" ]
++      deps += [ "//chrome:packed_resources_integrity_header" ]
 +    }
 +
-     ldflags = [
-       "/DELAYLOAD:api-ms-win-core-winrt-error-l1-1-0.dll",
-       "/DELAYLOAD:api-ms-win-core-winrt-l1-1-0.dll",
-@@ -7175,7 +7178,7 @@ test("unit_tests") {
-     }
- 
      deps += [
--      "//chrome:packed_resources_integrity_hash",
-+    # "//chrome:packed_resources_integrity_hash",
-       "//chrome/browser/apps/app_service:test_support",
-       "//chrome/browser/autofill_assistant/password_change/vector_icons:vector_icons",
-       "//chrome/browser/enterprise/connectors/analysis:features",
-@@ -7302,6 +7305,10 @@ test("unit_tests") {
-     }
-   }
+       "//chrome:other_version",
+-      "//chrome:packed_resources_integrity_header",
+       "//chrome//services/util_win:unit_tests",
+       "//chrome/app:chrome_dll_resources",
+       "//chrome/app:win_unit_tests",
+@@ -7960,6 +7963,10 @@ test("unit_tests") {
+       "../browser/performance_manager/policies/background_tab_loading_policy_unittest.cc",
+     ]
  
-+  if (!is_electron_build) {
-+    deps += [ "//chrome:packed_resources_integrity_hash" ]
-+  }
++    if (!is_electron_build) {
++      deps += [ "//chrome:packed_resources_integrity_header" ]
++    }
 +
-   if (is_chromeos_ash) {
-     sources -= [
-       "../browser/policy/cloud/user_policy_signin_service_unittest.cc",
+     sources += [
+       # The importer code is not used on Android.
+       "../common/importer/firefox_importer_utils_unittest.cc",
+@@ -8020,7 +8027,6 @@ test("unit_tests") {
+     # Non-android deps for "unit_tests" target.
+     deps += [
+       "../browser/screen_ai:screen_ai_install_state",
+-      "//chrome:packed_resources_integrity_header",
+       "//chrome/browser/apps:icon_standardizer",
+       "//chrome/browser/apps/app_service",
+       "//chrome/browser/apps/app_service:app_registry_cache_waiter",
